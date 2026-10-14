@@ -13,6 +13,7 @@ namespace UI {
 
 static LeaderboardDisplayType displayLeaderboardType = LEADERBOARD_DISPLAY_NAMES;
 static bool hasLeaderboardDisplayToggled = false;
+static wchar_t drinkResultBuffer[0x40];
 
 void setLeaderboardDisplayType(LeaderboardDisplayType type) {
     displayLeaderboardType = type;
@@ -97,6 +98,42 @@ void fillLeaderboardResult(CtrlRaceResult &result, u8 playerId) {
             result.SetTextBoxMessage("player_name", UI::BMG_TEXT, &textInfo);
             result.ResetTextBoxMessage("time");
         }
+    }
+
+    // Do not touch the player's name. On the normal names view, use the local
+    // row's time field for a compact finish-time + drink-points summary.
+    if (playerId == Race::GetDrinkPlayerId()
+      && displayLeaderboardType == LEADERBOARD_DISPLAY_NAMES
+      && koStatus == KO::NORMAL) {
+        const Race::DrinkRaceStats &drinkStats = Race::GetDrinkRaceStats();
+        Timer *finishTime = nullptr;
+        Raceinfo *raceInfo = Raceinfo::sInstance;
+
+        if (raceInfo != nullptr && raceInfo->players != nullptr
+          && playerId < 12 && raceInfo->players[playerId] != nullptr) {
+            finishTime = raceInfo->players[playerId]->raceFinishTime;
+        }
+
+        if (finishTime != nullptr && finishTime->isActive) {
+            swprintf(
+              drinkResultBuffer,
+              sizeof(drinkResultBuffer) / sizeof(drinkResultBuffer[0]),
+              L"%d:%02d.%03d  DP%d",
+              finishTime->minutes,
+              finishTime->seconds,
+              finishTime->milliseconds,
+              drinkStats.GetTotal());
+        } else {
+            swprintf(
+              drinkResultBuffer,
+              sizeof(drinkResultBuffer) / sizeof(drinkResultBuffer[0]),
+              L"DP%d",
+              drinkStats.GetTotal());
+        }
+
+        Text::Info drinkInfo;
+        drinkInfo.strings[0] = drinkResultBuffer;
+        result.SetTextBoxMessage("time", UI::BMG_TEXT, &drinkInfo);
     }
 
     if (koStatus != KO::NORMAL) {
