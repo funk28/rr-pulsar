@@ -41,16 +41,38 @@ bool wasOob = false;
 u8 pendingShockFrames = 0;
 bool shockObserved = false;
 u32 lastRaceFrame = 0xffffffff;
+u8 trackedPlayerId = 0xff;
+u8 trackedRaceNumber = 0xff;
 
-static u8 GetLocalPlayerId() {
+static u8 ResolveCurrentLocalPlayerId() {
     const Racedata *racedata = Racedata::sInstance;
     if (racedata == nullptr || racedata->racesScenario.localPlayerCount == 0)
         return 0xff;
 
-    const u8 playerId = racedata->racesScenario.settings.hudPlayerIds[0];
-    if (playerId >= racedata->racesScenario.playerCount || playerId >= 12)
-        return 0xff;
-    return playerId;
+    const RacedataScenario &scenario = racedata->racesScenario;
+    const u8 playerCount = scenario.playerCount < 12 ? scenario.playerCount : 12;
+
+    // This stays reliable online even when result/menu code rewrites HUD-slot
+    // mappings. There is only one local player for this counter.
+    for (u8 i = 0; i < playerCount; ++i) {
+        if (scenario.players[i].playerType == PLAYER_REAL_LOCAL)
+            return i;
+    }
+
+    // Fallback for modes/builds where playerType has not been populated yet.
+    const u8 hudPlayerId = scenario.settings.hudPlayerIds[0];
+    if (hudPlayerId < playerCount)
+        return hudPlayerId;
+
+    return 0xff;
+}
+
+static u8 GetLocalPlayerId() {
+    if (trackedPlayerId < 12)
+        return trackedPlayerId;
+
+    trackedPlayerId = ResolveCurrentLocalPlayerId();
+    return trackedPlayerId;
 }
 
 static Kart::Status *GetLocalStatus() {
@@ -108,9 +130,8 @@ static void ProcessEvent(const RKNet::EVENTEntry &entry) {
     if (entry.state != RKNet::EVENTENTRYSTATE_FULL)
         return;
 
-    // Blue-shell and Bob-omb hits are tracked directly from the live item
-    // objects so they also work in offline races. EVENT is retained for online
-    // lightning-use detection.
+    // Blue-shell and Bob-omb hits are tracked directly from live item objects.
+    // EVENT is retained for online lightning-use detection.
     if (entry.action == RKNet::EVENTACTION_USE && entry.itemObjId == OBJ_LIGHTNING) {
         const u8 localPlayerId = GetLocalPlayerId();
         if (localPlayerId == 0xff)
@@ -191,8 +212,6 @@ static void ScanExplosiveItemHits(u8 localPlayerId, Kart::Status *status) {
             if (blue->state != Item::ObjKouraTogezo::STATE_EXPLODING)
                 continue;
 
-            // playerCollisionId catches splash hits. targetedPlayerId plus the
-            // kart's item-hit flag catches the normal direct blue-shell hit.
             if (blue->playerCollisionId == localPlayerId
               || (blue->targetedPlayerId == localPlayerId && localHitThisFrame)) {
                 ++stats.blueHits;
@@ -229,6 +248,11 @@ void ResetDrinkTracker() {
     stats.falls = 0;
     stats.shockDodges = 0;
 
+    trackedPlayerId = ResolveCurrentLocalPlayerId();
+    trackedRaceNumber = 0xff;
+    if (Racedata::sInstance != nullptr)
+        trackedRaceNumber = Racedata::sInstance->racesScenario.settings.raceNumber;
+
     wasOob = false;
     pendingShockFrames = 0;
     shockObserved = false;
@@ -258,6 +282,17 @@ void UpdateDrinkTracker() {
         return;
     if (raceInfo->stage < RACESTAGE_RACE)
         return;
+
+    // The custom race HUD can persist between races, so Load() is not a
+    // dependable per-race reset point. Reset as soon as a new race is observed.
+    const u8 currentRaceNumber = racedata->racesScenario.settings.raceNumber;
+    if ((trackedRaceNumber != 0xff && currentRaceNumber != trackedRaceNumber)
+      || (lastRaceFrame != 0xffffffff && raceInfo->raceFrames < lastRaceFrame)) {
+        ResetDrinkTracker();
+    }
+
+    if (trackedPlayerId == 0xff)
+        trackedPlayerId = ResolveCurrentLocalPlayerId();
 
     if (lastRaceFrame == raceInfo->raceFrames)
         return;
@@ -308,7 +343,7 @@ void SetDrinkFinishPosition(u8 finishPosition) {
 }
 
 u8 GetDrinkPlayerId() {
-    return GetLocalPlayerId();
+    return trackedPlayerId;
 }
 
 const DrinkRaceStats &GetDrinkRaceStats() {
