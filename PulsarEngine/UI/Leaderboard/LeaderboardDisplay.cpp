@@ -14,6 +14,7 @@ namespace UI {
 
 static LeaderboardDisplayType displayLeaderboardType = LEADERBOARD_DISPLAY_NAMES;
 static bool hasLeaderboardDisplayToggled = false;
+static wchar_t drinkNameBuffer[0x40];
 
 void setLeaderboardDisplayType(LeaderboardDisplayType type) {
     displayLeaderboardType = type;
@@ -100,36 +101,34 @@ void fillLeaderboardResult(CtrlRaceResult &result, u8 playerId) {
         }
     }
 
-    // Keep the normal finish-time field untouched. The previous full breakdown
-    // was too wide for that pane and covered the row. On the normal names view,
-    // append only the compact final drink-point total to the local player's name.
+    // Keep the normal finish-time field untouched. Append only the compact
+    // drink-point total to the local player's name on the normal names view.
+    // The backing buffer is static because SetTextBoxMessage may retain the
+    // Text::Info string beyond this function call.
     if (playerId == Race::GetDrinkPlayerId()
       && displayLeaderboardType == LEADERBOARD_DISPLAY_NAMES
       && koStatus == KO::NORMAL) {
         nw4r::lyt::TextBox *nameBox = static_cast<nw4r::lyt::TextBox *>(result.layout.GetPaneByName("player_name"));
         if (nameBox != nullptr && nameBox->stringBuf != nullptr) {
             const Race::DrinkRaceStats &drinkStats = Race::GetDrinkRaceStats();
-            wchar_t drinkName[0x40];
 
-            // Short names can keep the original name. For a long name, use only
-            // the compact score so the row never grows across the finish time.
             if (nameBox->stringLength <= 10) {
                 swprintf(
-                  drinkName,
-                  sizeof(drinkName) / sizeof(drinkName[0]),
+                  drinkNameBuffer,
+                  sizeof(drinkNameBuffer) / sizeof(drinkNameBuffer[0]),
                   L"%ls  DP%d",
                   nameBox->stringBuf,
                   drinkStats.GetTotal());
             } else {
                 swprintf(
-                  drinkName,
-                  sizeof(drinkName) / sizeof(drinkName[0]),
+                  drinkNameBuffer,
+                  sizeof(drinkNameBuffer) / sizeof(drinkNameBuffer[0]),
                   L"DP%d",
                   drinkStats.GetTotal());
             }
 
             Text::Info drinkInfo;
-            drinkInfo.strings[0] = drinkName;
+            drinkInfo.strings[0] = drinkNameBuffer;
             result.SetTextBoxMessage("player_name", UI::BMG_TEXT, &drinkInfo);
         }
     }
@@ -157,10 +156,13 @@ void fillLeaderboardResult(CtrlRaceResult &result, u8 playerId) {
 }
 
 void fillLeaderboardResults(int count, CtrlRaceResult **results) {
-    // Copy the way the game loops here
+    // Copy the way the game loops here. This is also the most reliable place
+    // to lock the local player's final placement because the row order is final.
     for (int i = 0; i < (count & 0xff); ++i) {
         const int position = (i + 1) & 0xff;
         const u8 playerId = Raceinfo::sInstance->playerIdInEachPosition[position - 1];
+        if (playerId == Race::GetDrinkPlayerId())
+            Race::SetDrinkFinishPosition(static_cast<u8>(position));
         fillLeaderboardResult(*results[i], playerId);
     }
 }
