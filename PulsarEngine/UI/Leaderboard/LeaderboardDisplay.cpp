@@ -99,9 +99,8 @@ void fillLeaderboardResult(CtrlRaceResult &result, u8 playerId) {
         }
     }
 
-    // Restore the compact final drink total beside the local player's name.
-    // The current name-source bug is intentionally left visible for now so we
-    // can fix the name retrieval separately without losing the DP placement.
+    // Keep the compact total beside the local player's name for now. The
+    // current name-source issue can be fixed separately once the Gekko build is ready.
     if (playerId == Race::GetDrinkPlayerId()
       && displayLeaderboardType == LEADERBOARD_DISPLAY_NAMES
       && koStatus == KO::NORMAL) {
@@ -113,14 +112,14 @@ void fillLeaderboardResult(CtrlRaceResult &result, u8 playerId) {
                 swprintf(
                   drinkNameBuffer,
                   sizeof(drinkNameBuffer) / sizeof(drinkNameBuffer[0]),
-                  L"%ls  DP%d",
+                  L"%ls  Sips %d",
                   nameBox->stringBuf,
                   drinkStats.GetTotal());
             } else {
                 swprintf(
                   drinkNameBuffer,
                   sizeof(drinkNameBuffer) / sizeof(drinkNameBuffer[0]),
-                  L"DP%d",
+                  L"Sips %d",
                   drinkStats.GetTotal());
             }
 
