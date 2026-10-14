@@ -49,7 +49,6 @@ static CustomCtrlBuilder DRINKCOUNTER(CtrlRaceDrinkCounter::Count, CtrlRaceDrink
 void CtrlRaceDrinkCounter::Load() {
     this->hudSlotId = 0;
 
-    // Keep the same HUD path as the first build that was proven stable in Dolphin.
     ControlLoader loader(this);
     loader.Load("game_image", "CTInfo", "CTInfo", nullptr);
     this->textBox_00 = this->layout.GetPaneByName("TextBox_00");
@@ -70,15 +69,24 @@ bool CtrlRaceDrinkCounter::HasStarted() {
 }
 
 bool CtrlRaceDrinkCounter::IsInactive() {
-    // This function is queried during intro/countdown even while the control is
-    // hidden. Let the tracker see the new Raceinfo here so the previous race's
-    // placement/stat line is cleared before the HUD becomes visible.
-    Race::UpdateDrinkTracker();
+    Raceinfo *raceInfo = Raceinfo::sInstance;
+
+    // The race HUD/page can be reused between races, so Load() is not a reliable
+    // race boundary. During intro/countdown, explicitly clear any completed-race
+    // values before the control becomes visible again.
+    if (raceInfo != nullptr && raceInfo->stage < RACESTAGE_RACE) {
+        const Race::DrinkRaceStats &stats = Race::GetDrinkRaceStats();
+        if (stats.finishPosition != 0 || stats.blueHits != 0 || stats.bombHits != 0
+          || stats.falls != 0 || stats.shockDodges != 0) {
+            Race::ResetDrinkTracker();
+        }
+    } else {
+        Race::UpdateDrinkTracker();
+    }
 
     if (CtrlRaceBase::IsInactive())
         return true;
 
-    Raceinfo *raceInfo = Raceinfo::sInstance;
     if (raceInfo == nullptr || raceInfo->timerMgr == nullptr)
         return true;
 
@@ -86,8 +94,6 @@ bool CtrlRaceDrinkCounter::IsInactive() {
 }
 
 void CtrlRaceDrinkCounter::OnUpdate() {
-    // Update only while this known-safe HUD control is alive. The race-frame hook
-    // caused crashes during the intro on some race loads.
     Race::UpdateDrinkTracker();
 
     const Race::DrinkRaceStats &stats = Race::GetDrinkRaceStats();
