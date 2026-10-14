@@ -70,6 +70,11 @@ bool CtrlRaceDrinkCounter::HasStarted() {
 }
 
 bool CtrlRaceDrinkCounter::IsInactive() {
+    // This function is queried during intro/countdown even while the control is
+    // hidden. Let the tracker see the new Raceinfo here so the previous race's
+    // placement/stat line is cleared before the HUD becomes visible.
+    Race::UpdateDrinkTracker();
+
     if (CtrlRaceBase::IsInactive())
         return true;
 
