@@ -66,6 +66,9 @@ void CtrlRaceDrinkCounter::Load() {
         this->textBox_00->scale.z = 0.72f;
     }
 
+    // Reset here, after the race HUD and its core objects have been constructed.
+    Race::ResetDrinkTracker();
+
     this->textBuffer[0] = L'\0';
     Text::Info info;
     info.strings[0] = this->textBuffer;
