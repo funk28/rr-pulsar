@@ -14,12 +14,12 @@ public:
     static void Create(Page &page, u32 index, u32 count);
 
     void OnUpdate() override;
-    void SetPanePosition() override;
     bool IsInactive() override;
     bool HasStarted() override;
 
 private:
     void Load();
+    void ApplySafePosition();
     wchar_t textBuffer[0x100];
     float originalTextX;
     float originalTextY;
@@ -62,8 +62,6 @@ void CtrlRaceDrinkCounter::Load() {
     if (this->textBox_00 != nullptr) {
         this->originalTextX = this->textBox_00->trans.x;
         this->originalTextY = this->textBox_00->trans.y;
-        this->textBox_00->scale.x = 0.72f;
-        this->textBox_00->scale.z = 0.72f;
     }
 
     // Reset here, after the race HUD and its core objects have been constructed.
@@ -75,17 +73,17 @@ void CtrlRaceDrinkCounter::Load() {
     this->SetMessage(BMG_TEXT, &info);
 }
 
-void CtrlRaceDrinkCounter::SetPanePosition() {
-    CtrlRaceWifiStartMessage::SetPanePosition();
+void CtrlRaceDrinkCounter::ApplySafePosition() {
+    if (this->textBox_00 == nullptr)
+        return;
 
-    if (this->textBox_00 != nullptr) {
-        // CTInfo normally sits directly on top of the position HUD. Shift this
-        // compact counter toward the lower-middle of the screen instead.
-        this->textBox_00->trans.x = this->originalTextX + 235.0f;
-        this->textBox_00->trans.y = this->originalTextY + 38.0f;
-        this->textBox_00->scale.x = 0.72f;
-        this->textBox_00->scale.z = 0.72f;
-    }
+    // Do not override SetPanePosition. CtrlRaceWifiStartMessage owns that lifecycle
+    // and may call it before our CTInfo pane state is ready. Reposition only here,
+    // after the native OnUpdate has completed.
+    this->textBox_00->trans.x = this->originalTextX + 235.0f;
+    this->textBox_00->trans.y = this->originalTextY + 38.0f;
+    this->textBox_00->scale.x = 0.72f;
+    this->textBox_00->scale.z = 0.72f;
 }
 
 bool CtrlRaceDrinkCounter::HasStarted() {
@@ -107,8 +105,10 @@ bool CtrlRaceDrinkCounter::IsInactive() {
 }
 
 void CtrlRaceDrinkCounter::OnUpdate() {
-    // Let the native control handle its normal HUD positioning/animation first.
+    // Keep the native control behavior intact. The first test build proved this path
+    // is safe with the reused CTInfo layout.
     CtrlRaceWifiStartMessage::OnUpdate();
+    this->ApplySafePosition();
 
     const Race::DrinkRaceStats &stats = Race::GetDrinkRaceStats();
     const int total = stats.GetTotal();
