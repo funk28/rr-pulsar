@@ -63,7 +63,7 @@ void CtrlRaceDrinkCounter::Load() {
         this->originalTextX = this->textBox_00->trans.x;
         this->originalTextY = this->textBox_00->trans.y;
         this->textBox_00->scale.x = 0.72f;
-        this->textBox_00->scale.y = 0.72f;
+        this->textBox_00->scale.z = 0.72f;
     }
 
     this->textBuffer[0] = L'\0';
@@ -81,7 +81,7 @@ void CtrlRaceDrinkCounter::SetPanePosition() {
         this->textBox_00->trans.x = this->originalTextX + 235.0f;
         this->textBox_00->trans.y = this->originalTextY + 38.0f;
         this->textBox_00->scale.x = 0.72f;
-        this->textBox_00->scale.y = 0.72f;
+        this->textBox_00->scale.z = 0.72f;
     }
 }
 
