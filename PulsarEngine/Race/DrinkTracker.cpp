@@ -32,11 +32,12 @@ bool shockObserved = false;
 u32 lastRaceFrame = 0xffffffff;
 
 static u8 FindLocalPlayerId() {
-    // Prefer the kart status flag. This is more reliable than assuming HUD slot 0
-    // always maps directly to the player index in every race type.
+    // Prefer the kart status flag. During race startup the manager can exist
+    // before its player array is ready, so guard both pointers.
     Kart::Manager *manager = Kart::Manager::sInstance;
-    if (manager != nullptr) {
-        for (u32 i = 0; i < manager->playerCount; ++i) {
+    if (manager != nullptr && manager->players != nullptr) {
+        const u32 playerCount = manager->playerCount > 12 ? 12 : manager->playerCount;
+        for (u32 i = 0; i < playerCount; ++i) {
             if (manager->players[i] == nullptr)
                 continue;
 
@@ -52,7 +53,7 @@ static u8 FindLocalPlayerId() {
         return 0xff;
 
     const u8 playerId = racedata->racesScenario.settings.hudPlayerIds[0];
-    if (playerId >= racedata->racesScenario.playerCount)
+    if (playerId >= racedata->racesScenario.playerCount || playerId >= 12)
         return 0xff;
     return playerId;
 }
@@ -61,7 +62,8 @@ static Kart::Status *GetLocalStatus() {
     const u8 playerId = FindLocalPlayerId();
     Kart::Manager *manager = Kart::Manager::sInstance;
 
-    if (manager == nullptr || playerId == 0xff || playerId >= manager->playerCount)
+    if (manager == nullptr || manager->players == nullptr
+      || playerId == 0xff || playerId >= manager->playerCount || playerId >= 12)
         return nullptr;
     if (manager->players[playerId] == nullptr)
         return nullptr;
@@ -93,7 +95,7 @@ static bool IsSameStamp(const EventStamp &stamp, const RKNet::EVENTEntry &entry)
 
 static void PrimeEvents() {
     RKNet::EVENTHandler *handler = RKNet::EVENTHandler::sInstance;
-    if (handler == nullptr)
+    if (handler == nullptr || !handler->isPrepared)
         return;
 
     for (u32 i = 0; i < 24; ++i)
@@ -155,7 +157,7 @@ static void ScanEntry(const RKNet::EVENTEntry &entry, EventStamp &stamp) {
 
 static void ScanEvents() {
     RKNet::EVENTHandler *handler = RKNet::EVENTHandler::sInstance;
-    if (handler == nullptr)
+    if (handler == nullptr || !handler->isPrepared)
         return;
 
     if (!eventsPrimed) {
@@ -192,7 +194,8 @@ void ResetDrinkTracker() {
             eventStamps[row][i].initialized = false;
     }
 
-    PrimeEvents();
+    // Do not touch network state here. The reset can happen while the race HUD
+    // is loading, before EVENTHandler has finished preparing itself.
 }
 
 void UpdateDrinkTracker() {
@@ -210,7 +213,7 @@ void UpdateDrinkTracker() {
     lastRaceFrame = raceInfo->raceFrames;
 
     const u8 localPlayerId = FindLocalPlayerId();
-    if (localPlayerId == 0xff || localPlayerId >= racedata->racesScenario.playerCount)
+    if (localPlayerId == 0xff || localPlayerId >= racedata->racesScenario.playerCount || localPlayerId >= 12)
         return;
 
     Kart::Status *status = GetLocalStatus();
@@ -261,9 +264,8 @@ const DrinkRaceStats &GetDrinkRaceStats() {
     return stats;
 }
 
-// Tracking must not depend on whether the HUD control happens to be active.
-// Reset at race load and sample once per race frame.
-static RaceLoadHook DRINK_TRACKER_RESET_HOOK(ResetDrinkTracker);
+// Sample once per race frame. Reset is performed by the HUD control after the
+// race UI has been constructed, avoiding early race-load lifetime issues.
 static RaceFrameHook DRINK_TRACKER_UPDATE_HOOK(UpdateDrinkTracker);
 
 }  // namespace Race
