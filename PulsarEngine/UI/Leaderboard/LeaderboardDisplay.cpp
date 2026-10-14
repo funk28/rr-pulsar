@@ -7,6 +7,7 @@
 #include <PulsarSystem.hpp>
 #include <Gamemodes/KO/KOMgr.hpp>
 #include <Race/DrinkTracker.hpp>
+#include <core/nw4r/lyt/TextBox.hpp>
 
 namespace Pulsar {
 namespace UI {
@@ -99,25 +100,38 @@ void fillLeaderboardResult(CtrlRaceResult &result, u8 playerId) {
         }
     }
 
-    // Keep the final drink score visible on the actual post-race leaderboard.
-    // The local player's time/secondary field is replaced with a compact summary.
-    if (playerId == Race::GetDrinkPlayerId()) {
-        const Race::DrinkRaceStats &drinkStats = Race::GetDrinkRaceStats();
-        wchar_t drinkText[0x60];
-        swprintf(
-          drinkText,
-          sizeof(drinkText) / sizeof(drinkText[0]),
-          L"Drink %d  P+%d B+%d Bo+%d F+%d S-%d",
-          drinkStats.GetTotal(),
-          drinkStats.GetPlacementPoints(),
-          drinkStats.blueHits * Race::DrinkRules::BLUE_PENALTY,
-          drinkStats.bombHits * Race::DrinkRules::BOMB_PENALTY,
-          drinkStats.falls * Race::DrinkRules::FALL_PENALTY,
-          drinkStats.shockDodges * Race::DrinkRules::SHOCK_DODGE_REWARD);
+    // Keep the normal finish-time field untouched. The previous full breakdown
+    // was too wide for that pane and covered the row. On the normal names view,
+    // append only the compact final drink-point total to the local player's name.
+    if (playerId == Race::GetDrinkPlayerId()
+      && displayLeaderboardType == LEADERBOARD_DISPLAY_NAMES
+      && koStatus == KO::NORMAL) {
+        nw4r::lyt::TextBox *nameBox = static_cast<nw4r::lyt::TextBox *>(result.layout.GetPaneByName("player_name"));
+        if (nameBox != nullptr && nameBox->stringBuf != nullptr) {
+            const Race::DrinkRaceStats &drinkStats = Race::GetDrinkRaceStats();
+            wchar_t drinkName[0x40];
 
-        Text::Info drinkInfo;
-        drinkInfo.strings[0] = drinkText;
-        result.SetTextBoxMessage("time", UI::BMG_TEXT, &drinkInfo);
+            // Short names can keep the original name. For a long name, use only
+            // the compact score so the row never grows across the finish time.
+            if (nameBox->stringLength <= 10) {
+                swprintf(
+                  drinkName,
+                  sizeof(drinkName) / sizeof(drinkName[0]),
+                  L"%ls  DP%d",
+                  nameBox->stringBuf,
+                  drinkStats.GetTotal());
+            } else {
+                swprintf(
+                  drinkName,
+                  sizeof(drinkName) / sizeof(drinkName[0]),
+                  L"DP%d",
+                  drinkStats.GetTotal());
+            }
+
+            Text::Info drinkInfo;
+            drinkInfo.strings[0] = drinkName;
+            result.SetTextBoxMessage("player_name", UI::BMG_TEXT, &drinkInfo);
+        }
     }
 
     if (koStatus != KO::NORMAL) {
