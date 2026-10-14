@@ -42,7 +42,7 @@ u8 pendingShockFrames = 0;
 bool shockObserved = false;
 u32 lastRaceFrame = 0xffffffff;
 u8 trackedPlayerId = 0xff;
-u8 trackedRaceNumber = 0xff;
+Raceinfo *trackedRaceInfo = nullptr;
 
 static u8 ResolveCurrentLocalPlayerId() {
     const Racedata *racedata = Racedata::sInstance;
@@ -50,18 +50,8 @@ static u8 ResolveCurrentLocalPlayerId() {
         return 0xff;
 
     const RacedataScenario &scenario = racedata->racesScenario;
-    const u8 playerCount = scenario.playerCount < 12 ? scenario.playerCount : 12;
-
-    // This stays reliable online even when result/menu code rewrites HUD-slot
-    // mappings. There is only one local player for this counter.
-    for (u8 i = 0; i < playerCount; ++i) {
-        if (scenario.players[i].playerType == PLAYER_REAL_LOCAL)
-            return i;
-    }
-
-    // Fallback for modes/builds where playerType has not been populated yet.
     const u8 hudPlayerId = scenario.settings.hudPlayerIds[0];
-    if (hudPlayerId < playerCount)
+    if (hudPlayerId < scenario.playerCount && hudPlayerId < 12)
         return hudPlayerId;
 
     return 0xff;
@@ -137,7 +127,7 @@ static void ProcessEvent(const RKNet::EVENTEntry &entry) {
         if (localPlayerId == 0xff)
             return;
 
-        const u8 shockUserId = entry.data[0];
+        const u8 shockUserId = entry.data[0] & 0x0f;
         if (shockUserId == localPlayerId || shockUserId >= 12)
             return;
 
@@ -249,9 +239,7 @@ void ResetDrinkTracker() {
     stats.shockDodges = 0;
 
     trackedPlayerId = ResolveCurrentLocalPlayerId();
-    trackedRaceNumber = 0xff;
-    if (Racedata::sInstance != nullptr)
-        trackedRaceNumber = Racedata::sInstance->racesScenario.settings.raceNumber;
+    trackedRaceInfo = Raceinfo::sInstance;
 
     wasOob = false;
     pendingShockFrames = 0;
@@ -283,10 +271,9 @@ void UpdateDrinkTracker() {
     if (raceInfo->stage < RACESTAGE_RACE)
         return;
 
-    // The custom race HUD can persist between races, so Load() is not a
-    // dependable per-race reset point. Reset as soon as a new race is observed.
-    const u8 currentRaceNumber = racedata->racesScenario.settings.raceNumber;
-    if ((trackedRaceNumber != 0xff && currentRaceNumber != trackedRaceNumber)
+    // Raceinfo is destroyed/recreated for a new race. Use that as the primary
+    // race boundary, with a frame rollback as a fallback for flows that reuse it.
+    if (trackedRaceInfo != raceInfo
       || (lastRaceFrame != 0xffffffff && raceInfo->raceFrames < lastRaceFrame)) {
         ResetDrinkTracker();
     }
