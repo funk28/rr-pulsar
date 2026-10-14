@@ -1,6 +1,9 @@
 #include <Race/DrinkTracker.hpp>
 
+#include <MarioKartWii/Item/ItemManager.hpp>
+#include <MarioKartWii/Item/Obj/Bomb.hpp>
 #include <MarioKartWii/Item/Obj/ItemEVENT.hpp>
+#include <MarioKartWii/Item/Obj/KouraTogezo.hpp>
 #include <MarioKartWii/Kart/KartManager.hpp>
 #include <MarioKartWii/RKNet/EVENT.hpp>
 #include <MarioKartWii/Race/RaceData.hpp>
@@ -22,8 +25,16 @@ struct EventStamp {
     u8 data2;
 };
 
+struct ObjectWatch {
+    const Item::Obj *object;
+    u16 eventBitfield;
+    bool counted;
+};
+
 DrinkRaceStats stats;
 EventStamp eventStamps[13][24];
+ObjectWatch blueWatches[32];
+ObjectWatch bombWatches[32];
 
 bool eventsPrimed = false;
 bool wasOob = false;
@@ -97,23 +108,14 @@ static void ProcessEvent(const RKNet::EVENTEntry &entry) {
     if (entry.state != RKNet::EVENTENTRYSTATE_FULL)
         return;
 
-    const u8 localPlayerId = GetLocalPlayerId();
-    if (localPlayerId == 0xff)
-        return;
-
-    if (entry.action == RKNet::EVENTACTION_HITFREE) {
-        const u8 hitPlayerId = (entry.data[2] >> 4) & 0x0f;
-        if (hitPlayerId != localPlayerId)
+    // Blue-shell and Bob-omb hits are tracked directly from the live item
+    // objects so they also work in offline races. EVENT is retained for online
+    // lightning-use detection.
+    if (entry.action == RKNet::EVENTACTION_USE && entry.itemObjId == OBJ_LIGHTNING) {
+        const u8 localPlayerId = GetLocalPlayerId();
+        if (localPlayerId == 0xff)
             return;
 
-        if (entry.itemObjId == OBJ_BLUE_SHELL)
-            ++stats.blueHits;
-        else if (entry.itemObjId == OBJ_BOBOMB)
-            ++stats.bombHits;
-        return;
-    }
-
-    if (entry.action == RKNet::EVENTACTION_USE && entry.itemObjId == OBJ_LIGHTNING) {
         const u8 shockUserId = entry.data[0];
         if (shockUserId == localPlayerId || shockUserId >= 12)
             return;
@@ -154,6 +156,70 @@ static void ScanEvents() {
     }
 }
 
+static void RefreshWatch(ObjectWatch &watch, const Item::Obj *object) {
+    if (object == nullptr) {
+        watch.object = nullptr;
+        watch.eventBitfield = 0;
+        watch.counted = false;
+        return;
+    }
+
+    if (watch.object != object || watch.eventBitfield != object->eventBitfield) {
+        watch.object = object;
+        watch.eventBitfield = object->eventBitfield;
+        watch.counted = false;
+    }
+}
+
+static void ScanExplosiveItemHits(u8 localPlayerId, Kart::Status *status) {
+    Item::Manager *manager = Item::Manager::sInstance;
+    if (manager == nullptr)
+        return;
+
+    const bool localHitThisFrame = status != nullptr && (status->bitfield1 & 0x1) != 0;
+
+    Item::ObjHolder &blueHolder = manager->itemObjHolders[OBJ_BLUE_SHELL];
+    if (blueHolder.itemObj != nullptr) {
+        const u32 count = blueHolder.capacity < 32 ? blueHolder.capacity : 32;
+        for (u32 i = 0; i < count; ++i) {
+            Item::Obj *base = blueHolder.itemObj[i];
+            RefreshWatch(blueWatches[i], base);
+            if (base == nullptr || blueWatches[i].counted || base->duration == 0)
+                continue;
+
+            Item::ObjKouraTogezo *blue = static_cast<Item::ObjKouraTogezo *>(base);
+            if (blue->state != Item::ObjKouraTogezo::STATE_EXPLODING)
+                continue;
+
+            // playerCollisionId catches splash hits. targetedPlayerId plus the
+            // kart's item-hit flag catches the normal direct blue-shell hit.
+            if (blue->playerCollisionId == localPlayerId
+              || (blue->targetedPlayerId == localPlayerId && localHitThisFrame)) {
+                ++stats.blueHits;
+                blueWatches[i].counted = true;
+            }
+        }
+    }
+
+    Item::ObjHolder &bombHolder = manager->itemObjHolders[OBJ_BOBOMB];
+    if (bombHolder.itemObj != nullptr) {
+        const u32 count = bombHolder.capacity < 32 ? bombHolder.capacity : 32;
+        for (u32 i = 0; i < count; ++i) {
+            Item::Obj *base = bombHolder.itemObj[i];
+            RefreshWatch(bombWatches[i], base);
+            if (base == nullptr || bombWatches[i].counted || base->duration == 0)
+                continue;
+
+            Item::ObjBomb *bomb = static_cast<Item::ObjBomb *>(base);
+            if (bomb->state == Item::ObjBomb::STATE_EXPLODING
+              && bomb->playerCollisionId == localPlayerId) {
+                ++stats.bombHits;
+                bombWatches[i].counted = true;
+            }
+        }
+    }
+}
+
 }  // namespace
 
 void ResetDrinkTracker() {
@@ -172,6 +238,15 @@ void ResetDrinkTracker() {
     for (u32 row = 0; row < 13; ++row) {
         for (u32 i = 0; i < 24; ++i)
             eventStamps[row][i].initialized = false;
+    }
+
+    for (u32 i = 0; i < 32; ++i) {
+        blueWatches[i].object = nullptr;
+        blueWatches[i].eventBitfield = 0;
+        blueWatches[i].counted = false;
+        bombWatches[i].object = nullptr;
+        bombWatches[i].eventBitfield = 0;
+        bombWatches[i].counted = false;
     }
 }
 
@@ -203,6 +278,7 @@ void UpdateDrinkTracker() {
         wasOob = false;
     }
 
+    ScanExplosiveItemHits(localPlayerId, status);
     ScanEvents();
 
     if (pendingShockFrames > 0 && status != nullptr) {
@@ -215,16 +291,20 @@ void UpdateDrinkTracker() {
     }
 
     if (stats.finishPosition == 0) {
-        u8 finishPos = racedata->racesScenario.players[localPlayerId].finishPos;
-
-        if (finishPos == 0 && raceInfo->stage >= RACESTAGE_IS_FINISHING
-          && raceInfo->players != nullptr && raceInfo->players[localPlayerId] != nullptr) {
-            finishPos = raceInfo->players[localPlayerId]->position;
+        const u8 scenarioFinishPos = racedata->racesScenario.players[localPlayerId].finishPos;
+        if (scenarioFinishPos > 0) {
+            stats.finishPosition = scenarioFinishPos;
+        } else if (raceInfo->players != nullptr && raceInfo->players[localPlayerId] != nullptr) {
+            RaceinfoPlayer *playerInfo = raceInfo->players[localPlayerId];
+            if ((playerInfo->stateFlags & 0x20) != 0 && playerInfo->position > 0)
+                stats.finishPosition = playerInfo->position;
         }
-
-        if (finishPos > 0)
-            stats.finishPosition = finishPos;
     }
+}
+
+void SetDrinkFinishPosition(u8 finishPosition) {
+    if (finishPosition > 0 && finishPosition <= 12)
+        stats.finishPosition = finishPosition;
 }
 
 u8 GetDrinkPlayerId() {
