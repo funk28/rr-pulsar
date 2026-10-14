@@ -58,7 +58,6 @@ static u8 ResolveCurrentLocalPlayerId() {
     if (playerId < racedata->racesScenario.playerCount && playerId < 12)
         return playerId;
 
-    // Fallback for very early race setup before local-player lookup is ready.
     const u8 hudPlayerId = racedata->racesScenario.settings.hudPlayerIds[0];
     if (hudPlayerId < racedata->racesScenario.playerCount && hudPlayerId < 12)
         return hudPlayerId;
@@ -91,8 +90,6 @@ static Kart::Status *GetLocalStatus() {
 }
 
 static void BeginShockCheck() {
-    // EVENT and status-transition detection can both observe the same shock.
-    // Only open one window for a given lightning use.
     if (pendingShockFrames != 0 || localShockUseFrames != 0)
         return;
 
@@ -117,8 +114,6 @@ static void UpdateLocalShockUseState(u8 localPlayerId) {
     const ItemId currentItem = itemPlayer->inventory.currentItemId;
     const bool isUsingItem = (itemPlayer->bitfield & 0x2000) != 0;
 
-    // Mark a short window when the local player consumes lightning. This stops
-    // the status-based fallback from mistaking the user's own shock for a dodge.
     if ((isUsingItem && currentItem == LIGHTNING)
       || (previousLocalInventoryItem == LIGHTNING && currentItem != LIGHTNING)) {
         localShockUseFrames = 20;
@@ -173,9 +168,6 @@ static void ProcessEvent(const RKNet::EVENTEntry &entry) {
     if (entry.state != RKNet::EVENTENTRYSTATE_FULL)
         return;
 
-    // Keep the network event as the most exact online lightning signal.
-    // Offline races do not produce this event, so ScanShockStateTransitions()
-    // below supplies an offline/online fallback based on the actual kart states.
     if (entry.action == RKNet::EVENTACTION_USE && entry.itemObjId == OBJ_LIGHTNING) {
         const u8 localPlayerId = GetLocalPlayerId();
         if (localPlayerId == 0xff)
@@ -252,10 +244,6 @@ static void ScanShockStateTransitions(u8 localPlayerId) {
     if (newlyShockedOpponents == 0 || localShockUseFrames != 0)
         return;
 
-    // In a normal multi-racer field, require two opponents to enter the shock
-    // state together. That distinguishes a global lightning use from one kart
-    // entering a similar state for another reason. Two-player races necessarily
-    // have only one opponent, so one transition is sufficient there.
     const u8 requiredTransitions = validOpponentCount <= 1 ? 1 : 2;
     if (newlyShockedOpponents >= requiredTransitions)
         BeginShockCheck();
@@ -370,9 +358,6 @@ void UpdateDrinkTracker() {
     if (raceInfo == nullptr || racedata == nullptr)
         return;
 
-    // Reset as soon as a new Raceinfo exists, including during intro/countdown.
-    // This prevents the previous race's placement line from flashing at the
-    // beginning of the next race.
     if (trackedRaceInfo != raceInfo
       || (lastRaceFrame != 0xffffffff && raceInfo->raceFrames < lastRaceFrame)) {
         ResetDrinkTracker();
@@ -420,16 +405,10 @@ void UpdateDrinkTracker() {
             ++stats.shockDodges;
     }
 
-    if (stats.finishPosition == 0) {
-        const u8 scenarioFinishPos = racedata->racesScenario.players[localPlayerId].finishPos;
-        if (scenarioFinishPos > 0) {
-            stats.finishPosition = scenarioFinishPos;
-        } else if (raceInfo->players != nullptr && raceInfo->players[localPlayerId] != nullptr) {
-            RaceinfoPlayer *playerInfo = raceInfo->players[localPlayerId];
-            if ((playerInfo->stateFlags & 0x20) != 0 && playerInfo->position > 0)
-                stats.finishPosition = playerInfo->position;
-        }
-    }
+    // Do not read racesScenario.players[].finishPos here. Retro Rewind can retain
+    // the previous race's value into the next race, which made stale placement
+    // points reappear after a reset. The finalized leaderboard sets placement via
+    // SetDrinkFinishPosition() when the race actually ends.
 }
 
 void SetDrinkFinishPosition(u8 finishPosition) {
