@@ -6,6 +6,7 @@
 #include <UI/UI.hpp>
 #include <PulsarSystem.hpp>
 #include <Gamemodes/KO/KOMgr.hpp>
+#include <Race/DrinkTracker.hpp>
 
 namespace Pulsar {
 namespace UI {
@@ -96,6 +97,27 @@ void fillLeaderboardResult(CtrlRaceResult &result, u8 playerId) {
             result.SetTextBoxMessage("player_name", UI::BMG_TEXT, &textInfo);
             result.ResetTextBoxMessage("time");
         }
+    }
+
+    // Keep the final drink score visible on the actual post-race leaderboard.
+    // The local player's time/secondary field is replaced with a compact summary.
+    if (playerId == Race::GetDrinkPlayerId()) {
+        const Race::DrinkRaceStats &drinkStats = Race::GetDrinkRaceStats();
+        wchar_t drinkText[0x60];
+        swprintf(
+          drinkText,
+          sizeof(drinkText) / sizeof(drinkText[0]),
+          L"Drink %d  P+%d B+%d Bo+%d F+%d S-%d",
+          drinkStats.GetTotal(),
+          drinkStats.GetPlacementPoints(),
+          drinkStats.blueHits * Race::DrinkRules::BLUE_PENALTY,
+          drinkStats.bombHits * Race::DrinkRules::BOMB_PENALTY,
+          drinkStats.falls * Race::DrinkRules::FALL_PENALTY,
+          drinkStats.shockDodges * Race::DrinkRules::SHOCK_DODGE_REWARD);
+
+        Text::Info drinkInfo;
+        drinkInfo.strings[0] = drinkText;
+        result.SetTextBoxMessage("time", UI::BMG_TEXT, &drinkInfo);
     }
 
     if (koStatus != KO::NORMAL) {
