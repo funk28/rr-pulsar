@@ -134,7 +134,7 @@ void fillLeaderboardResults(int count, CtrlRaceResult **results) {
 
 const u32 WIIMOTE_DPAD_BUTTONS = WPAD::WPAD_BUTTON_LEFT | WPAD::WPAD_BUTTON_RIGHT | WPAD::WPAD_BUTTON_DOWN | WPAD::WPAD_BUTTON_UP;
 const u32 CLASSIC_DPAD_BUTTONS = WPAD::WPAD_CL_BUTTON_UP | WPAD::WPAD_CL_BUTTON_LEFT | WPAD::WPAD_CL_BUTTON_DOWN | WPAD::WPAD_CL_BUTTON_RIGHT;
-const u32 GC_DPAD_BUTTONS = PAD::PAD_BUTTON_L | PAD::PAD_BUTTON_R | GC_DPAD_BUTTONS;
+const u32 GC_DPAD_BUTTONS = PAD::PAD_BUTTON_UP | PAD::PAD_BUTTON_LEFT | PAD::PAD_BUTTON_DOWN | PAD::PAD_BUTTON_RIGHT;
 
 bool checkLeaderboardDisplaySwapInputs() {
     const Input::RealControllerHolder *controllerHolder = SectionMgr::sInstance->pad.padInfos[0].controllerHolder;
