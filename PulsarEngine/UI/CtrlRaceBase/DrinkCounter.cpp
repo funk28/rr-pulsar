@@ -80,9 +80,6 @@ void CtrlRaceDrinkCounter::SyncRaceBoundary() {
     const bool timerRolledBack = this->lastRaceTimerFrame != 0xffffffff
       && timerFrame < this->lastRaceTimerFrame;
 
-    // The race HUD can survive between races. Reset on the real false->true
-    // race-start edge, with the race timer rolling back as a fallback when the
-    // control does not observe the false state between result screens.
     if ((started && !this->wasRaceStarted) || timerRolledBack)
         Race::ResetDrinkTracker();
 
@@ -119,30 +116,12 @@ void CtrlRaceDrinkCounter::OnUpdate() {
     Race::UpdateDrinkTracker();
 
     const Race::DrinkRaceStats &stats = Race::GetDrinkRaceStats();
-    const int total = stats.GetTotal();
 
-    if (stats.finishPosition > 0) {
-        swprintf(
-          this->textBuffer,
-          sizeof(this->textBuffer) / sizeof(this->textBuffer[0]),
-          L"DRINK POINTS: %d\nPlace +%d  Blue +%d  Bomb +%d  Falls +%d  Shock -%d",
-          total,
-          stats.GetPlacementPoints(),
-          stats.blueHits * Race::DrinkRules::BLUE_PENALTY,
-          stats.bombHits * Race::DrinkRules::BOMB_PENALTY,
-          stats.falls * Race::DrinkRules::FALL_PENALTY,
-          stats.shockDodges * Race::DrinkRules::SHOCK_DODGE_REWARD);
-    } else {
-        swprintf(
-          this->textBuffer,
-          sizeof(this->textBuffer) / sizeof(this->textBuffer[0]),
-          L"Drink points: %d\nBlue +%d  Bomb +%d  Falls +%d  Shock -%d",
-          total,
-          stats.blueHits * Race::DrinkRules::BLUE_PENALTY,
-          stats.bombHits * Race::DrinkRules::BOMB_PENALTY,
-          stats.falls * Race::DrinkRules::FALL_PENALTY,
-          stats.shockDodges * Race::DrinkRules::SHOCK_DODGE_REWARD);
-    }
+    swprintf(
+      this->textBuffer,
+      sizeof(this->textBuffer) / sizeof(this->textBuffer[0]),
+      L"DRINK POINTS: %d",
+      stats.GetTotal());
 
     Text::Info info;
     info.strings[0] = this->textBuffer;
