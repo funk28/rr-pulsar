@@ -7,13 +7,14 @@
 #include <PulsarSystem.hpp>
 #include <Gamemodes/KO/KOMgr.hpp>
 #include <Race/DrinkTracker.hpp>
+#include <core/nw4r/lyt/TextBox.hpp>
 
 namespace Pulsar {
 namespace UI {
 
 static LeaderboardDisplayType displayLeaderboardType = LEADERBOARD_DISPLAY_NAMES;
 static bool hasLeaderboardDisplayToggled = false;
-static wchar_t drinkResultBuffer[0x40];
+static wchar_t drinkNameBuffer[0x40];
 
 void setLeaderboardDisplayType(LeaderboardDisplayType type) {
     displayLeaderboardType = type;
@@ -98,23 +99,34 @@ void fillLeaderboardResult(CtrlRaceResult &result, u8 playerId) {
         }
     }
 
-    // Leave the player's name alone. The leaderboard's visible score column has
-    // enough room for the normal score plus a compact drink-point total.
+    // Keep the normal score/time fields untouched. On the normal names view,
+    // append only the compact final drink-point total beside the local name.
     if (playerId == Race::GetDrinkPlayerId()
       && displayLeaderboardType == LEADERBOARD_DISPLAY_NAMES
-      && koStatus == KO::NORMAL
-      && result.layout.GetPaneByName("score") != nullptr) {
-        const Race::DrinkRaceStats &drinkStats = Race::GetDrinkRaceStats();
-        swprintf(
-          drinkResultBuffer,
-          sizeof(drinkResultBuffer) / sizeof(drinkResultBuffer[0]),
-          L"%d  DP%d",
-          result.score,
-          drinkStats.GetTotal());
+      && koStatus == KO::NORMAL) {
+        nw4r::lyt::TextBox *nameBox = static_cast<nw4r::lyt::TextBox *>(result.layout.GetPaneByName("player_name"));
+        if (nameBox != nullptr && nameBox->stringBuf != nullptr) {
+            const Race::DrinkRaceStats &drinkStats = Race::GetDrinkRaceStats();
 
-        Text::Info drinkInfo;
-        drinkInfo.strings[0] = drinkResultBuffer;
-        result.SetTextBoxMessage("score", UI::BMG_TEXT, &drinkInfo);
+            if (nameBox->stringLength <= 10) {
+                swprintf(
+                  drinkNameBuffer,
+                  sizeof(drinkNameBuffer) / sizeof(drinkNameBuffer[0]),
+                  L"%ls  DP%d",
+                  nameBox->stringBuf,
+                  drinkStats.GetTotal());
+            } else {
+                swprintf(
+                  drinkNameBuffer,
+                  sizeof(drinkNameBuffer) / sizeof(drinkNameBuffer[0]),
+                  L"DP%d",
+                  drinkStats.GetTotal());
+            }
+
+            Text::Info drinkInfo;
+            drinkInfo.strings[0] = drinkNameBuffer;
+            result.SetTextBoxMessage("player_name", UI::BMG_TEXT, &drinkInfo);
+        }
     }
 
     if (koStatus != KO::NORMAL) {
