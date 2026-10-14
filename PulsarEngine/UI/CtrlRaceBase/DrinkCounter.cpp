@@ -101,10 +101,10 @@ void CtrlRaceDrinkCounter::ApplySafePosition() {
     if (this->textBox_00 == nullptr)
         return;
 
-    // Keep the counter over the lower-left position HUD instead of covering it.
-    // Apply this only after the native control update so we do not interfere with
-    // CtrlRaceWifiStartMessage's pane lifecycle.
-    this->textBox_00->trans.x = this->originalTextX;
+    // Keep the counter above the lower-left position HUD and pull it farther
+    // toward the left edge. Apply only after the native control update so we do
+    // not interfere with CtrlRaceWifiStartMessage's pane lifecycle.
+    this->textBox_00->trans.x = this->originalTextX - 90.0f;
     this->textBox_00->trans.y = this->originalTextY + 95.0f;
 }
 
