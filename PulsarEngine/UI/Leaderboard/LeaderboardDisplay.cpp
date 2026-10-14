@@ -7,14 +7,12 @@
 #include <PulsarSystem.hpp>
 #include <Gamemodes/KO/KOMgr.hpp>
 #include <Race/DrinkTracker.hpp>
-#include <core/nw4r/lyt/TextBox.hpp>
 
 namespace Pulsar {
 namespace UI {
 
 static LeaderboardDisplayType displayLeaderboardType = LEADERBOARD_DISPLAY_NAMES;
 static bool hasLeaderboardDisplayToggled = false;
-static wchar_t drinkNameBuffer[0x40];
 
 void setLeaderboardDisplayType(LeaderboardDisplayType type) {
     displayLeaderboardType = type;
@@ -101,37 +99,6 @@ void fillLeaderboardResult(CtrlRaceResult &result, u8 playerId) {
         }
     }
 
-    // Keep the normal result fields intact. Put a small bracketed drink total
-    // beside the local player's name only; the tracker locks the local player
-    // ID during the race so this cannot jump to another row during transitions.
-    if (playerId == Race::GetDrinkPlayerId()
-      && displayLeaderboardType == LEADERBOARD_DISPLAY_NAMES
-      && koStatus == KO::NORMAL) {
-        nw4r::lyt::TextBox *nameBox = static_cast<nw4r::lyt::TextBox *>(result.layout.GetPaneByName("player_name"));
-        if (nameBox != nullptr && nameBox->stringBuf != nullptr) {
-            const Race::DrinkRaceStats &drinkStats = Race::GetDrinkRaceStats();
-
-            if (nameBox->stringLength <= 10) {
-                swprintf(
-                  drinkNameBuffer,
-                  sizeof(drinkNameBuffer) / sizeof(drinkNameBuffer[0]),
-                  L"%ls  [D%d]",
-                  nameBox->stringBuf,
-                  drinkStats.GetTotal());
-            } else {
-                swprintf(
-                  drinkNameBuffer,
-                  sizeof(drinkNameBuffer) / sizeof(drinkNameBuffer[0]),
-                  L"[D%d]",
-                  drinkStats.GetTotal());
-            }
-
-            Text::Info drinkInfo;
-            drinkInfo.strings[0] = drinkNameBuffer;
-            result.SetTextBoxMessage("player_name", UI::BMG_TEXT, &drinkInfo);
-        }
-    }
-
     if (koStatus != KO::NORMAL) {
         ut::Color color;
         if (koStatus == KO::KOD) {
@@ -143,7 +110,7 @@ void fillLeaderboardResult(CtrlRaceResult &result, u8 playerId) {
         if (koStatus == KO::TIE) {
             color = 0xff00f0c0;
         }
-        lyt::Picture *selectBase = static_cast<nw4r::lyt::Picture *>(result.layout.GetPaneByName("select_base"));
+        lyt::Picture *selectBase = static_cast<lyt::Picture *>(result.layout.GetPaneByName("select_base"));
         result.animator.GetAnimationGroupById(4).PlayAnimationAtFrame(6, 0.0f);
         UI::ResetMatColor(selectBase, color);
         UI::UnbindRLMC(selectBase->material);
@@ -167,7 +134,7 @@ void fillLeaderboardResults(int count, CtrlRaceResult **results) {
 
 const u32 WIIMOTE_DPAD_BUTTONS = WPAD::WPAD_BUTTON_LEFT | WPAD::WPAD_BUTTON_RIGHT | WPAD::WPAD_BUTTON_DOWN | WPAD::WPAD_BUTTON_UP;
 const u32 CLASSIC_DPAD_BUTTONS = WPAD::WPAD_CL_BUTTON_UP | WPAD::WPAD_CL_BUTTON_LEFT | WPAD::WPAD_CL_BUTTON_DOWN | WPAD::WPAD_CL_BUTTON_RIGHT;
-const u32 GC_DPAD_BUTTONS = PAD::PAD_BUTTON_LEFT | PAD::PAD_BUTTON_RIGHT | PAD::PAD_BUTTON_DOWN | PAD::PAD_BUTTON_UP;
+const u32 GC_DPAD_BUTTONS = PAD::PAD_BUTTON_L | PAD::PAD_BUTTON_R | GC_DPAD_BUTTONS;
 
 bool checkLeaderboardDisplaySwapInputs() {
     const Input::RealControllerHolder *controllerHolder = SectionMgr::sInstance->pad.padInfos[0].controllerHolder;
