@@ -1,3 +1,4 @@
+#include <PulsarSystem.hpp>
 #include <Race/DrinkTracker.hpp>
 #include <UI/CtrlRaceBase/CustomCtrlRaceBase.hpp>
 
@@ -13,12 +14,15 @@ public:
     static void Create(Page &page, u32 index, u32 count);
 
     void OnUpdate() override;
+    void SetPanePosition() override;
     bool IsInactive() override;
     bool HasStarted() override;
 
 private:
     void Load();
     wchar_t textBuffer[0x100];
+    float originalTextX;
+    float originalTextY;
 };
 
 u32 CtrlRaceDrinkCounter::Count() {
@@ -48,18 +52,37 @@ static CustomCtrlBuilder DRINKCOUNTER(CtrlRaceDrinkCounter::Count, CtrlRaceDrink
 void CtrlRaceDrinkCounter::Load() {
     this->hudSlotId = 0;
 
-    // Reuse Retro Rewind's existing CTInfo text banner, so this first pass
-    // requires no new BRLYT/BRCTR assets.
+    // Reuse Retro Rewind's existing CTInfo text banner, so no custom BRLYT is required.
     ControlLoader loader(this);
     loader.Load("game_image", "CTInfo", "CTInfo", nullptr);
     this->textBox_00 = this->layout.GetPaneByName("TextBox_00");
 
-    Race::ResetDrinkTracker();
+    this->originalTextX = 0.0f;
+    this->originalTextY = 0.0f;
+    if (this->textBox_00 != nullptr) {
+        this->originalTextX = this->textBox_00->trans.x;
+        this->originalTextY = this->textBox_00->trans.y;
+        this->textBox_00->scale.x = 0.72f;
+        this->textBox_00->scale.y = 0.72f;
+    }
 
     this->textBuffer[0] = L'\0';
     Text::Info info;
     info.strings[0] = this->textBuffer;
     this->SetMessage(BMG_TEXT, &info);
+}
+
+void CtrlRaceDrinkCounter::SetPanePosition() {
+    CtrlRaceWifiStartMessage::SetPanePosition();
+
+    if (this->textBox_00 != nullptr) {
+        // CTInfo normally sits directly on top of the position HUD. Shift this
+        // compact counter toward the lower-middle of the screen instead.
+        this->textBox_00->trans.x = this->originalTextX + 235.0f;
+        this->textBox_00->trans.y = this->originalTextY + 38.0f;
+        this->textBox_00->scale.x = 0.72f;
+        this->textBox_00->scale.y = 0.72f;
+    }
 }
 
 bool CtrlRaceDrinkCounter::HasStarted() {
@@ -81,7 +104,8 @@ bool CtrlRaceDrinkCounter::IsInactive() {
 }
 
 void CtrlRaceDrinkCounter::OnUpdate() {
-    Race::UpdateDrinkTracker();
+    // Let the native control handle its normal HUD positioning/animation first.
+    CtrlRaceWifiStartMessage::OnUpdate();
 
     const Race::DrinkRaceStats &stats = Race::GetDrinkRaceStats();
     const int total = stats.GetTotal();
@@ -90,7 +114,7 @@ void CtrlRaceDrinkCounter::OnUpdate() {
         swprintf(
           this->textBuffer,
           sizeof(this->textBuffer) / sizeof(this->textBuffer[0]),
-          L"DRINK POINTS: %d\nPlace +%d  Blue +%d  Bomb +%d  Falls +%d  Shock -%d",
+          L"Drink pts %d   Place +%d   B +%d   Bomb +%d   Fall +%d   Shock -%d",
           total,
           stats.GetPlacementPoints(),
           stats.blueHits * Race::DrinkRules::BLUE_PENALTY,
@@ -101,7 +125,7 @@ void CtrlRaceDrinkCounter::OnUpdate() {
         swprintf(
           this->textBuffer,
           sizeof(this->textBuffer) / sizeof(this->textBuffer[0]),
-          L"Drink points: %d\nBlue +%d  Bomb +%d  Falls +%d  Shock -%d",
+          L"Drink pts %d   B +%d   Bomb +%d   Fall +%d   Shock -%d",
           total,
           stats.blueHits * Race::DrinkRules::BLUE_PENALTY,
           stats.bombHits * Race::DrinkRules::BOMB_PENALTY,
@@ -112,8 +136,6 @@ void CtrlRaceDrinkCounter::OnUpdate() {
     Text::Info info;
     info.strings[0] = this->textBuffer;
     this->SetMessage(BMG_TEXT, &info);
-
-    CtrlRaceWifiStartMessage::OnUpdate();
 }
 
 }  // namespace UI
