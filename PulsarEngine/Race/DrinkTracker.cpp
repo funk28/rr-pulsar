@@ -1,6 +1,7 @@
 #include <Race/DrinkTracker.hpp>
 
 #include <MarioKartWii/Item/ItemManager.hpp>
+#include <MarioKartWii/Item/ItemPlayer.hpp>
 #include <MarioKartWii/Item/Obj/Bomb.hpp>
 #include <MarioKartWii/Item/Obj/ItemEVENT.hpp>
 #include <MarioKartWii/Item/Obj/KouraTogezo.hpp>
@@ -42,18 +43,24 @@ bool eventsPrimed = false;
 bool wasOob = false;
 u8 pendingShockFrames = 0;
 bool shockObserved = false;
+u8 localShockUseFrames = 0;
+ItemId previousLocalInventoryItem = ITEM_NONE;
 u32 lastRaceFrame = 0xffffffff;
 u8 trackedPlayerId = 0xff;
 Raceinfo *trackedRaceInfo = nullptr;
 
 static u8 ResolveCurrentLocalPlayerId() {
-    const Racedata *racedata = Racedata::sInstance;
+    Racedata *racedata = Racedata::sInstance;
     if (racedata == nullptr || racedata->racesScenario.localPlayerCount == 0)
         return 0xff;
 
-    const RacedataScenario &scenario = racedata->racesScenario;
-    const u8 hudPlayerId = scenario.settings.hudPlayerIds[0];
-    if (hudPlayerId < scenario.playerCount && hudPlayerId < 12)
+    const u8 playerId = racedata->GetPlayerIdOfLocalPlayer(0);
+    if (playerId < racedata->racesScenario.playerCount && playerId < 12)
+        return playerId;
+
+    // Fallback for very early race setup before local-player lookup is ready.
+    const u8 hudPlayerId = racedata->racesScenario.settings.hudPlayerIds[0];
+    if (hudPlayerId < racedata->racesScenario.playerCount && hudPlayerId < 12)
         return hudPlayerId;
 
     return 0xff;
@@ -86,7 +93,7 @@ static Kart::Status *GetLocalStatus() {
 static void BeginShockCheck() {
     // EVENT and status-transition detection can both observe the same shock.
     // Only open one window for a given lightning use.
-    if (pendingShockFrames != 0)
+    if (pendingShockFrames != 0 || localShockUseFrames != 0)
         return;
 
     pendingShockFrames = 10;
@@ -95,6 +102,33 @@ static void BeginShockCheck() {
     Kart::Status *status = GetLocalStatus();
     if (status != nullptr && (status->bitfield2 & 0x80) != 0)
         shockObserved = true;
+}
+
+static void UpdateLocalShockUseState(u8 localPlayerId) {
+    Item::Manager *manager = Item::Manager::sInstance;
+    if (manager == nullptr || manager->players == nullptr || localPlayerId >= manager->playerCount) {
+        previousLocalInventoryItem = ITEM_NONE;
+        if (localShockUseFrames > 0)
+            --localShockUseFrames;
+        return;
+    }
+
+    Item::Player *itemPlayer = &manager->players[localPlayerId];
+    const ItemId currentItem = itemPlayer->inventory.currentItemId;
+    const bool isUsingItem = (itemPlayer->bitfield & 0x2000) != 0;
+
+    // Mark a short window when the local player consumes lightning. This stops
+    // the status-based fallback from mistaking the user's own shock for a dodge.
+    if ((isUsingItem && currentItem == LIGHTNING)
+      || (previousLocalInventoryItem == LIGHTNING && currentItem != LIGHTNING)) {
+        localShockUseFrames = 20;
+        pendingShockFrames = 0;
+        shockObserved = false;
+    } else if (localShockUseFrames > 0) {
+        --localShockUseFrames;
+    }
+
+    previousLocalInventoryItem = currentItem;
 }
 
 static void CopyStamp(EventStamp &stamp, const RKNet::EVENTEntry &entry) {
@@ -148,8 +182,15 @@ static void ProcessEvent(const RKNet::EVENTEntry &entry) {
             return;
 
         const u8 shockUserId = entry.data[0] & 0x0f;
-        if (shockUserId == localPlayerId || shockUserId >= 12)
+        if (shockUserId >= 12)
             return;
+
+        if (shockUserId == localPlayerId) {
+            localShockUseFrames = 20;
+            pendingShockFrames = 0;
+            shockObserved = false;
+            return;
+        }
 
         BeginShockCheck();
     }
@@ -208,7 +249,7 @@ static void ScanShockStateTransitions(u8 localPlayerId) {
         shockStateInitialized[playerId] = true;
     }
 
-    if (newlyShockedOpponents == 0)
+    if (newlyShockedOpponents == 0 || localShockUseFrames != 0)
         return;
 
     // In a normal multi-racer field, require two opponents to enter the shock
@@ -297,6 +338,8 @@ void ResetDrinkTracker() {
     wasOob = false;
     pendingShockFrames = 0;
     shockObserved = false;
+    localShockUseFrames = 0;
+    previousLocalInventoryItem = ITEM_NONE;
     lastRaceFrame = 0xffffffff;
     eventsPrimed = false;
 
@@ -326,15 +369,17 @@ void UpdateDrinkTracker() {
 
     if (raceInfo == nullptr || racedata == nullptr)
         return;
-    if (raceInfo->stage < RACESTAGE_RACE)
-        return;
 
-    // Raceinfo is destroyed/recreated for a new race. Use that as the primary
-    // race boundary, with a frame rollback as a fallback for flows that reuse it.
+    // Reset as soon as a new Raceinfo exists, including during intro/countdown.
+    // This prevents the previous race's placement line from flashing at the
+    // beginning of the next race.
     if (trackedRaceInfo != raceInfo
       || (lastRaceFrame != 0xffffffff && raceInfo->raceFrames < lastRaceFrame)) {
         ResetDrinkTracker();
     }
+
+    if (raceInfo->stage < RACESTAGE_RACE)
+        return;
 
     if (trackedPlayerId == 0xff)
         trackedPlayerId = ResolveCurrentLocalPlayerId();
@@ -358,11 +403,15 @@ void UpdateDrinkTracker() {
         wasOob = false;
     }
 
+    UpdateLocalShockUseState(localPlayerId);
     ScanExplosiveItemHits(localPlayerId, status);
     ScanEvents();
     ScanShockStateTransitions(localPlayerId);
 
-    if (pendingShockFrames > 0 && status != nullptr) {
+    if (localShockUseFrames != 0) {
+        pendingShockFrames = 0;
+        shockObserved = false;
+    } else if (pendingShockFrames > 0 && status != nullptr) {
         if ((status->bitfield2 & 0x80) != 0)
             shockObserved = true;
 
