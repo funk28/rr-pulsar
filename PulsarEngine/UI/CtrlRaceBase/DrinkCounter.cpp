@@ -20,10 +20,13 @@ public:
 private:
     void Load();
     void SyncRaceBoundary();
+    void ApplySafePosition();
 
     wchar_t textBuffer[0x100];
     bool wasRaceStarted;
     u32 lastRaceTimerFrame;
+    float originalTextX;
+    float originalTextY;
 };
 
 u32 CtrlRaceDrinkCounter::Count() {
@@ -57,6 +60,13 @@ void CtrlRaceDrinkCounter::Load() {
     loader.Load("game_image", "CTInfo", "CTInfo", nullptr);
     this->textBox_00 = this->layout.GetPaneByName("TextBox_00");
 
+    this->originalTextX = 0.0f;
+    this->originalTextY = 0.0f;
+    if (this->textBox_00 != nullptr) {
+        this->originalTextX = this->textBox_00->trans.x;
+        this->originalTextY = this->textBox_00->trans.y;
+    }
+
     this->wasRaceStarted = false;
     this->lastRaceTimerFrame = 0xffffffff;
     Race::ResetDrinkTracker();
@@ -85,6 +95,17 @@ void CtrlRaceDrinkCounter::SyncRaceBoundary() {
 
     this->wasRaceStarted = started;
     this->lastRaceTimerFrame = timerFrame;
+}
+
+void CtrlRaceDrinkCounter::ApplySafePosition() {
+    if (this->textBox_00 == nullptr)
+        return;
+
+    // Keep the counter over the lower-left position HUD instead of covering it.
+    // Apply this only after the native control update so we do not interfere with
+    // CtrlRaceWifiStartMessage's pane lifecycle.
+    this->textBox_00->trans.x = this->originalTextX;
+    this->textBox_00->trans.y = this->originalTextY + 95.0f;
 }
 
 bool CtrlRaceDrinkCounter::HasStarted() {
@@ -128,6 +149,7 @@ void CtrlRaceDrinkCounter::OnUpdate() {
     this->SetMessage(BMG_TEXT, &info);
 
     CtrlRaceWifiStartMessage::OnUpdate();
+    this->ApplySafePosition();
 }
 
 }  // namespace UI
