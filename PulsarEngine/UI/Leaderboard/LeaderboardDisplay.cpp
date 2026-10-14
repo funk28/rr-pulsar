@@ -24,7 +24,6 @@ LeaderboardDisplayType getLeaderboardDisplayType() {
     return displayLeaderboardType;
 }
 
-// In case we want to add more display types (FC, flags, whatever..)
 void nextLeaderboardDisplayType() {
     hasLeaderboardDisplayToggled = true;
     if (displayLeaderboardType == LEADERBOARD_DISPLAY_NAMES) {
@@ -88,9 +87,8 @@ void fillLeaderboardResult(CtrlRaceResult &result, u8 playerId) {
             wchar_t fcText[16];
             swprintf(fcText, 16, L"%04d-%04d-%04d", fcParts[2], fcParts[1], fcParts[0]);
 
-            if (wcscmp(fcText, L"0000-0000-0000") == 0) {
+            if (wcscmp(fcText, L"0000-0000-0000") == 0)
                 swprintf(fcText, 16, L"----");
-            }
 
             Text::Info textInfo;
             textInfo.strings[0] = fcText;
@@ -100,53 +98,33 @@ void fillLeaderboardResult(CtrlRaceResult &result, u8 playerId) {
         }
     }
 
-    // Do not touch the player's name. On the normal names view, use the local
-    // row's time field for a compact finish-time + drink-points summary.
+    // Leave the player's name alone. The leaderboard's visible score column has
+    // enough room for the normal score plus a compact drink-point total.
     if (playerId == Race::GetDrinkPlayerId()
       && displayLeaderboardType == LEADERBOARD_DISPLAY_NAMES
-      && koStatus == KO::NORMAL) {
+      && koStatus == KO::NORMAL
+      && result.layout.GetPaneByName("score") != nullptr) {
         const Race::DrinkRaceStats &drinkStats = Race::GetDrinkRaceStats();
-        Timer *finishTime = nullptr;
-        Raceinfo *raceInfo = Raceinfo::sInstance;
-
-        if (raceInfo != nullptr && raceInfo->players != nullptr
-          && playerId < 12 && raceInfo->players[playerId] != nullptr) {
-            finishTime = raceInfo->players[playerId]->raceFinishTime;
-        }
-
-        if (finishTime != nullptr && finishTime->isActive) {
-            swprintf(
-              drinkResultBuffer,
-              sizeof(drinkResultBuffer) / sizeof(drinkResultBuffer[0]),
-              L"%d:%02d.%03d  DP%d",
-              finishTime->minutes,
-              finishTime->seconds,
-              finishTime->milliseconds,
-              drinkStats.GetTotal());
-        } else {
-            swprintf(
-              drinkResultBuffer,
-              sizeof(drinkResultBuffer) / sizeof(drinkResultBuffer[0]),
-              L"DP%d",
-              drinkStats.GetTotal());
-        }
+        swprintf(
+          drinkResultBuffer,
+          sizeof(drinkResultBuffer) / sizeof(drinkResultBuffer[0]),
+          L"%d  DP%d",
+          result.score,
+          drinkStats.GetTotal());
 
         Text::Info drinkInfo;
         drinkInfo.strings[0] = drinkResultBuffer;
-        result.SetTextBoxMessage("time", UI::BMG_TEXT, &drinkInfo);
+        result.SetTextBoxMessage("score", UI::BMG_TEXT, &drinkInfo);
     }
 
     if (koStatus != KO::NORMAL) {
         ut::Color color;
-        if (koStatus == KO::KOD) {
+        if (koStatus == KO::KOD)
             color = 0xff0000c0;
-        }
-        if (koStatus == KO::DISCONNECTED) {
+        if (koStatus == KO::DISCONNECTED)
             color = 0xff0f00c0;
-        }
-        if (koStatus == KO::TIE) {
+        if (koStatus == KO::TIE)
             color = 0xff00f0c0;
-        }
         lyt::Picture *selectBase = static_cast<lyt::Picture *>(result.layout.GetPaneByName("select_base"));
         result.animator.GetAnimationGroupById(4).PlayAnimationAtFrame(6, 0.0f);
         UI::ResetMatColor(selectBase, color);
@@ -159,7 +137,6 @@ void fillLeaderboardResult(CtrlRaceResult &result, u8 playerId) {
 }
 
 void fillLeaderboardResults(int count, CtrlRaceResult **results) {
-    // Row order is final here, so use it to lock the local player's placement.
     for (int i = 0; i < (count & 0xff); ++i) {
         const int position = (i + 1) & 0xff;
         const u8 playerId = Raceinfo::sInstance->playerIdInEachPosition[position - 1];
