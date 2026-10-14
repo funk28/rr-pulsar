@@ -101,10 +101,9 @@ void fillLeaderboardResult(CtrlRaceResult &result, u8 playerId) {
         }
     }
 
-    // Keep the normal finish-time field untouched. Append only the compact
-    // drink-point total to the local player's name on the normal names view.
-    // The backing buffer is static because SetTextBoxMessage may retain the
-    // Text::Info string beyond this function call.
+    // Keep the normal result fields intact. Put a small bracketed drink total
+    // beside the local player's name only; the tracker locks the local player
+    // ID during the race so this cannot jump to another row during transitions.
     if (playerId == Race::GetDrinkPlayerId()
       && displayLeaderboardType == LEADERBOARD_DISPLAY_NAMES
       && koStatus == KO::NORMAL) {
@@ -116,14 +115,14 @@ void fillLeaderboardResult(CtrlRaceResult &result, u8 playerId) {
                 swprintf(
                   drinkNameBuffer,
                   sizeof(drinkNameBuffer) / sizeof(drinkNameBuffer[0]),
-                  L"%ls  DP%d",
+                  L"%ls  [D%d]",
                   nameBox->stringBuf,
                   drinkStats.GetTotal());
             } else {
                 swprintf(
                   drinkNameBuffer,
                   sizeof(drinkNameBuffer) / sizeof(drinkNameBuffer[0]),
-                  L"DP%d",
+                  L"[D%d]",
                   drinkStats.GetTotal());
             }
 
@@ -144,8 +143,8 @@ void fillLeaderboardResult(CtrlRaceResult &result, u8 playerId) {
         if (koStatus == KO::TIE) {
             color = 0xff00f0c0;
         }
-        result.animator.GetAnimationGroupById(4).PlayAnimationAtFrame(6, 0.0f);
         lyt::Picture *selectBase = static_cast<nw4r::lyt::Picture *>(result.layout.GetPaneByName("select_base"));
+        result.animator.GetAnimationGroupById(4).PlayAnimationAtFrame(6, 0.0f);
         UI::ResetMatColor(selectBase, color);
         UI::UnbindRLMC(selectBase->material);
         selectBase->vertexColours[0] = color;
@@ -156,8 +155,7 @@ void fillLeaderboardResult(CtrlRaceResult &result, u8 playerId) {
 }
 
 void fillLeaderboardResults(int count, CtrlRaceResult **results) {
-    // Copy the way the game loops here. This is also the most reliable place
-    // to lock the local player's final placement because the row order is final.
+    // Row order is final here, so use it to lock the local player's placement.
     for (int i = 0; i < (count & 0xff); ++i) {
         const int position = (i + 1) & 0xff;
         const u8 playerId = Raceinfo::sInstance->playerIdInEachPosition[position - 1];
