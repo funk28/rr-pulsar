@@ -101,9 +101,9 @@ void CtrlRaceDrinkCounter::ApplySafePosition() {
     if (this->textBox_00 == nullptr)
         return;
 
-    // Keep the counter above the lower-left position HUD, but leave enough
-    // room from the screen edge that the whole label stays visible.
-    this->textBox_00->trans.x = this->originalTextX - 55.0f;
+    // Keep the counter above the lower-left position HUD, with a little extra
+    // room from the left edge so the full label remains visible.
+    this->textBox_00->trans.x = this->originalTextX - 35.0f;
     this->textBox_00->trans.y = this->originalTextY + 95.0f;
 }
 
@@ -137,11 +137,13 @@ void CtrlRaceDrinkCounter::OnUpdate() {
 
     const Race::DrinkRaceStats &stats = Race::GetDrinkRaceStats();
 
+    // Show the live raw score so shock-dodge credits can visibly take the
+    // running counter below zero during the race.
     swprintf(
       this->textBuffer,
       sizeof(this->textBuffer) / sizeof(this->textBuffer[0]),
       L"SIPS: %d",
-      stats.GetTotal());
+      stats.GetRawTotal());
 
     Text::Info info;
     info.strings[0] = this->textBuffer;
