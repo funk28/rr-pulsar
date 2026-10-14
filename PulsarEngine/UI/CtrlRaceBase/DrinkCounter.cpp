@@ -19,7 +19,11 @@ public:
 
 private:
     void Load();
+    void SyncRaceBoundary();
+
     wchar_t textBuffer[0x100];
+    bool wasRaceStarted;
+    u32 lastRaceTimerFrame;
 };
 
 u32 CtrlRaceDrinkCounter::Count() {
@@ -53,12 +57,37 @@ void CtrlRaceDrinkCounter::Load() {
     loader.Load("game_image", "CTInfo", "CTInfo", nullptr);
     this->textBox_00 = this->layout.GetPaneByName("TextBox_00");
 
+    this->wasRaceStarted = false;
+    this->lastRaceTimerFrame = 0xffffffff;
     Race::ResetDrinkTracker();
 
     this->textBuffer[0] = L'\0';
     Text::Info info;
     info.strings[0] = this->textBuffer;
     this->SetMessage(BMG_TEXT, &info);
+}
+
+void CtrlRaceDrinkCounter::SyncRaceBoundary() {
+    Raceinfo *raceInfo = Raceinfo::sInstance;
+    if (raceInfo == nullptr || raceInfo->timerMgr == nullptr) {
+        this->wasRaceStarted = false;
+        this->lastRaceTimerFrame = 0xffffffff;
+        return;
+    }
+
+    const bool started = raceInfo->timerMgr->hasRaceStarted;
+    const u32 timerFrame = raceInfo->timerMgr->raceFrameCounter;
+    const bool timerRolledBack = this->lastRaceTimerFrame != 0xffffffff
+      && timerFrame < this->lastRaceTimerFrame;
+
+    // The race HUD can survive between races. Reset on the real false->true
+    // race-start edge, with the race timer rolling back as a fallback when the
+    // control does not observe the false state between result screens.
+    if ((started && !this->wasRaceStarted) || timerRolledBack)
+        Race::ResetDrinkTracker();
+
+    this->wasRaceStarted = started;
+    this->lastRaceTimerFrame = timerFrame;
 }
 
 bool CtrlRaceDrinkCounter::HasStarted() {
@@ -69,31 +98,24 @@ bool CtrlRaceDrinkCounter::HasStarted() {
 }
 
 bool CtrlRaceDrinkCounter::IsInactive() {
-    Raceinfo *raceInfo = Raceinfo::sInstance;
-
-    // The race HUD/page can be reused between races, so Load() is not a reliable
-    // race boundary. During intro/countdown, explicitly clear any completed-race
-    // values before the control becomes visible again.
-    if (raceInfo != nullptr && raceInfo->stage < RACESTAGE_RACE) {
-        const Race::DrinkRaceStats &stats = Race::GetDrinkRaceStats();
-        if (stats.finishPosition != 0 || stats.blueHits != 0 || stats.bombHits != 0
-          || stats.falls != 0 || stats.shockDodges != 0) {
-            Race::ResetDrinkTracker();
-        }
-    } else {
-        Race::UpdateDrinkTracker();
-    }
+    this->SyncRaceBoundary();
 
     if (CtrlRaceBase::IsInactive())
         return true;
 
+    Raceinfo *raceInfo = Raceinfo::sInstance;
     if (raceInfo == nullptr || raceInfo->timerMgr == nullptr)
         return true;
 
-    return !raceInfo->timerMgr->hasRaceStarted;
+    if (!raceInfo->timerMgr->hasRaceStarted)
+        return true;
+
+    Race::UpdateDrinkTracker();
+    return false;
 }
 
 void CtrlRaceDrinkCounter::OnUpdate() {
+    this->SyncRaceBoundary();
     Race::UpdateDrinkTracker();
 
     const Race::DrinkRaceStats &stats = Race::GetDrinkRaceStats();
