@@ -35,6 +35,8 @@ DrinkRaceStats stats;
 EventStamp eventStamps[13][24];
 ObjectWatch blueWatches[32];
 ObjectWatch bombWatches[32];
+bool shockStateInitialized[12];
+bool wasShocked[12];
 
 bool eventsPrimed = false;
 bool wasOob = false;
@@ -65,8 +67,7 @@ static u8 GetLocalPlayerId() {
     return trackedPlayerId;
 }
 
-static Kart::Status *GetLocalStatus() {
-    const u8 playerId = GetLocalPlayerId();
+static Kart::Status *GetStatusForPlayer(u8 playerId) {
     Kart::Manager *manager = Kart::Manager::sInstance;
 
     if (manager == nullptr || manager->players == nullptr
@@ -76,6 +77,24 @@ static Kart::Status *GetLocalStatus() {
         return nullptr;
 
     return manager->players[playerId]->pointers.kartStatus;
+}
+
+static Kart::Status *GetLocalStatus() {
+    return GetStatusForPlayer(GetLocalPlayerId());
+}
+
+static void BeginShockCheck() {
+    // EVENT and status-transition detection can both observe the same shock.
+    // Only open one window for a given lightning use.
+    if (pendingShockFrames != 0)
+        return;
+
+    pendingShockFrames = 10;
+    shockObserved = false;
+
+    Kart::Status *status = GetLocalStatus();
+    if (status != nullptr && (status->bitfield2 & 0x80) != 0)
+        shockObserved = true;
 }
 
 static void CopyStamp(EventStamp &stamp, const RKNet::EVENTEntry &entry) {
@@ -120,8 +139,9 @@ static void ProcessEvent(const RKNet::EVENTEntry &entry) {
     if (entry.state != RKNet::EVENTENTRYSTATE_FULL)
         return;
 
-    // Blue-shell and Bob-omb hits are tracked directly from live item objects.
-    // EVENT is retained for online lightning-use detection.
+    // Keep the network event as the most exact online lightning signal.
+    // Offline races do not produce this event, so ScanShockStateTransitions()
+    // below supplies an offline/online fallback based on the actual kart states.
     if (entry.action == RKNet::EVENTACTION_USE && entry.itemObjId == OBJ_LIGHTNING) {
         const u8 localPlayerId = GetLocalPlayerId();
         if (localPlayerId == 0xff)
@@ -131,12 +151,7 @@ static void ProcessEvent(const RKNet::EVENTEntry &entry) {
         if (shockUserId == localPlayerId || shockUserId >= 12)
             return;
 
-        pendingShockFrames = 8;
-        shockObserved = false;
-
-        Kart::Status *status = GetLocalStatus();
-        if (status != nullptr && (status->bitfield2 & 0x80) != 0)
-            shockObserved = true;
+        BeginShockCheck();
     }
 }
 
@@ -165,6 +180,44 @@ static void ScanEvents() {
         for (u32 i = 0; i < 24; ++i)
             ScanEntry(handler->receivedEntries[aid][i], eventStamps[aid + 1][i]);
     }
+}
+
+static void ScanShockStateTransitions(u8 localPlayerId) {
+    Kart::Manager *manager = Kart::Manager::sInstance;
+    if (manager == nullptr || manager->players == nullptr)
+        return;
+
+    const u8 playerCount = manager->playerCount < 12 ? manager->playerCount : 12;
+    u8 validOpponentCount = 0;
+    u8 newlyShockedOpponents = 0;
+
+    for (u8 playerId = 0; playerId < playerCount; ++playerId) {
+        Kart::Status *status = GetStatusForPlayer(playerId);
+        if (status == nullptr)
+            continue;
+
+        const bool isShocked = (status->bitfield2 & 0x80) != 0;
+
+        if (playerId != localPlayerId) {
+            ++validOpponentCount;
+            if (shockStateInitialized[playerId] && isShocked && !wasShocked[playerId])
+                ++newlyShockedOpponents;
+        }
+
+        wasShocked[playerId] = isShocked;
+        shockStateInitialized[playerId] = true;
+    }
+
+    if (newlyShockedOpponents == 0)
+        return;
+
+    // In a normal multi-racer field, require two opponents to enter the shock
+    // state together. That distinguishes a global lightning use from one kart
+    // entering a similar state for another reason. Two-player races necessarily
+    // have only one opponent, so one transition is sufficient there.
+    const u8 requiredTransitions = validOpponentCount <= 1 ? 1 : 2;
+    if (newlyShockedOpponents >= requiredTransitions)
+        BeginShockCheck();
 }
 
 static void RefreshWatch(ObjectWatch &watch, const Item::Obj *object) {
@@ -252,6 +305,11 @@ void ResetDrinkTracker() {
             eventStamps[row][i].initialized = false;
     }
 
+    for (u32 i = 0; i < 12; ++i) {
+        shockStateInitialized[i] = false;
+        wasShocked[i] = false;
+    }
+
     for (u32 i = 0; i < 32; ++i) {
         blueWatches[i].object = nullptr;
         blueWatches[i].eventBitfield = 0;
@@ -302,6 +360,7 @@ void UpdateDrinkTracker() {
 
     ScanExplosiveItemHits(localPlayerId, status);
     ScanEvents();
+    ScanShockStateTransitions(localPlayerId);
 
     if (pendingShockFrames > 0 && status != nullptr) {
         if ((status->bitfield2 & 0x80) != 0)
