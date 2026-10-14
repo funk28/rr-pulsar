@@ -46,6 +46,7 @@ struct DrinkRaceStats {
 
 void ResetDrinkTracker();
 void UpdateDrinkTracker();
+void SetDrinkFinishPosition(u8 finishPosition);
 u8 GetDrinkPlayerId();
 const DrinkRaceStats &GetDrinkRaceStats();
 
