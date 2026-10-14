@@ -46,6 +46,7 @@ struct DrinkRaceStats {
 
 void ResetDrinkTracker();
 void UpdateDrinkTracker();
+u8 GetDrinkPlayerId();
 const DrinkRaceStats &GetDrinkRaceStats();
 
 }  // namespace Race
