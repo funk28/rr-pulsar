@@ -7,6 +7,7 @@ namespace Pulsar {
 namespace UI {
 class ExpWWLeaderboardUpdate : public Pages::WWLeaderboardUpdate {
 public:
+    void BeforeEntranceAnimations() override;
     void OnUpdate() override;
 };
 }  // namespace UI
