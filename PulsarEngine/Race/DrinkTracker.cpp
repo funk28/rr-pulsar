@@ -23,7 +23,7 @@ struct EventStamp {
 };
 
 DrinkRaceStats stats;
-EventStamp eventStamps[13][24];  // row 0 = send queue, rows 1-12 = received AIDs
+EventStamp eventStamps[13][24];
 
 bool eventsPrimed = false;
 bool wasOob = false;
@@ -31,23 +31,7 @@ u8 pendingShockFrames = 0;
 bool shockObserved = false;
 u32 lastRaceFrame = 0xffffffff;
 
-static u8 FindLocalPlayerId() {
-    // Prefer the kart status flag. During race startup the manager can exist
-    // before its player array is ready, so guard both pointers.
-    Kart::Manager *manager = Kart::Manager::sInstance;
-    if (manager != nullptr && manager->players != nullptr) {
-        const u32 playerCount = manager->playerCount > 12 ? 12 : manager->playerCount;
-        for (u32 i = 0; i < playerCount; ++i) {
-            if (manager->players[i] == nullptr)
-                continue;
-
-            Kart::Status *status = manager->players[i]->pointers.kartStatus;
-            if (status != nullptr && (status->bitfield4 & 0x2) != 0)
-                return static_cast<u8>(i);  // real local player
-        }
-    }
-
-    // Fallback for the short window before Kart::Status is available.
+static u8 GetLocalPlayerId() {
     const Racedata *racedata = Racedata::sInstance;
     if (racedata == nullptr || racedata->racesScenario.localPlayerCount == 0)
         return 0xff;
@@ -59,7 +43,7 @@ static u8 FindLocalPlayerId() {
 }
 
 static Kart::Status *GetLocalStatus() {
-    const u8 playerId = FindLocalPlayerId();
+    const u8 playerId = GetLocalPlayerId();
     Kart::Manager *manager = Kart::Manager::sInstance;
 
     if (manager == nullptr || manager->players == nullptr
@@ -113,12 +97,11 @@ static void ProcessEvent(const RKNet::EVENTEntry &entry) {
     if (entry.state != RKNet::EVENTENTRYSTATE_FULL)
         return;
 
-    const u8 localPlayerId = FindLocalPlayerId();
+    const u8 localPlayerId = GetLocalPlayerId();
     if (localPlayerId == 0xff)
         return;
 
     if (entry.action == RKNet::EVENTACTION_HITFREE) {
-        // HitFreeEntry packs the collision player in the upper nibble.
         const u8 hitPlayerId = (entry.data[2] >> 4) & 0x0f;
         if (hitPlayerId != localPlayerId)
             return;
@@ -127,14 +110,11 @@ static void ProcessEvent(const RKNet::EVENTEntry &entry) {
             ++stats.blueHits;
         else if (entry.itemObjId == OBJ_BOBOMB)
             ++stats.bombHits;
-
         return;
     }
 
     if (entry.action == RKNet::EVENTACTION_USE && entry.itemObjId == OBJ_LIGHTNING) {
         const u8 shockUserId = entry.data[0];
-
-        // Using your own shock is not a dodge.
         if (shockUserId == localPlayerId || shockUserId >= 12)
             return;
 
@@ -193,9 +173,6 @@ void ResetDrinkTracker() {
         for (u32 i = 0; i < 24; ++i)
             eventStamps[row][i].initialized = false;
     }
-
-    // Do not touch network state here. The reset can happen while the race HUD
-    // is loading, before EVENTHandler has finished preparing itself.
 }
 
 void UpdateDrinkTracker() {
@@ -207,19 +184,16 @@ void UpdateDrinkTracker() {
     if (raceInfo->stage < RACESTAGE_RACE)
         return;
 
-    // Protect against accidental multiple updates in one game frame.
     if (lastRaceFrame == raceInfo->raceFrames)
         return;
     lastRaceFrame = raceInfo->raceFrames;
 
-    const u8 localPlayerId = FindLocalPlayerId();
-    if (localPlayerId == 0xff || localPlayerId >= racedata->racesScenario.playerCount || localPlayerId >= 12)
+    const u8 localPlayerId = GetLocalPlayerId();
+    if (localPlayerId == 0xff)
         return;
 
     Kart::Status *status = GetLocalStatus();
 
-    // Count the transition into OOB instead of relying on a one-frame respawn bit.
-    // Status::bitfield0 0x10 is "OOB, before being respawned".
     if (status != nullptr) {
         const bool isOob = (status->bitfield0 & 0x10) != 0;
         if (isOob && !wasOob)
@@ -231,7 +205,6 @@ void UpdateDrinkTracker() {
 
     ScanEvents();
 
-    // Give the lightning event a few frames to apply its shocked state.
     if (pendingShockFrames > 0 && status != nullptr) {
         if ((status->bitfield2 & 0x80) != 0)
             shockObserved = true;
@@ -244,8 +217,6 @@ void UpdateDrinkTracker() {
     if (stats.finishPosition == 0) {
         u8 finishPos = racedata->racesScenario.players[localPlayerId].finishPos;
 
-        // finishPos can lag by a frame in some modes. Once the race is finishing,
-        // RaceinfoPlayer::position is a safe fallback for the local finisher.
         if (finishPos == 0 && raceInfo->stage >= RACESTAGE_IS_FINISHING
           && raceInfo->players != nullptr && raceInfo->players[localPlayerId] != nullptr) {
             finishPos = raceInfo->players[localPlayerId]->position;
@@ -257,16 +228,12 @@ void UpdateDrinkTracker() {
 }
 
 u8 GetDrinkPlayerId() {
-    return FindLocalPlayerId();
+    return GetLocalPlayerId();
 }
 
 const DrinkRaceStats &GetDrinkRaceStats() {
     return stats;
 }
-
-// Sample once per race frame. Reset is performed by the HUD control after the
-// race UI has been constructed, avoiding early race-load lifetime issues.
-static RaceFrameHook DRINK_TRACKER_UPDATE_HOOK(UpdateDrinkTracker);
 
 }  // namespace Race
 }  // namespace Pulsar
